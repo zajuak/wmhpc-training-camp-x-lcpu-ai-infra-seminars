@@ -5,7 +5,7 @@
 // contract（两个 kernel 相同的部分）：
 //   - launch 配置是 <<<nblocks, BLOCK>>>，BLOCK = 256；
 //   - 第 b 个 block 负责 in[b*BLOCK] 到 in[b*BLOCK + 255] 这 256 个元素，
-//     把它们的和写进 out[b]（归约结束后由一个线程写出，通常是 tid == 0）；
+//ft55     把它们的和写进 out[b]（归约结束后由一个线程写出，通常是 tid == 0）；
 //   - 求和在 shared memory 里做：每个线程先把自己对应的那个元素搬进
 //     __shared__ float buf[BLOCK]，之后的加法全部在 buf 上进行；
 //   - 每一轮配对加法前后都要 __syncthreads()
@@ -40,10 +40,36 @@
 
 __global__ void reduce_interleaved(const float *in, float *out) {
     // TODO：从这里开始写（交错配对版本）
+    __shared__ float buf[BLOCK];
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    buf[threadIdx.x] = in[tid];
+    __syncthreads();
+    for (int s = 1; s < blockDim.x; s *= 2) {
+        if (threadIdx.x % (2 * s) == 0) {
+            buf[threadIdx.x] += buf[threadIdx.x + s];
+        }
+        __syncthreads();
+    }
+    if (threadIdx.x == 0) {
+        out[blockIdx.x] = buf[0];
+    }
 }
 
 __global__ void reduce_contiguous(const float *in, float *out) {
     // TODO：从这里开始写（连续配对版本）
+    __shared__ float buf[BLOCK];
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    buf[threadIdx.x] = in[tid];
+    __syncthreads();  
+    for (int s = blockDim.x / 2; s > 0; s /= 2) {
+        if (threadIdx.x < s) {
+            buf[threadIdx.x] += buf[threadIdx.x + s];
+        }
+        __syncthreads();
+    }
+    if (threadIdx.x == 0) {
+        out[blockIdx.x] = buf[0];
+    }
 }
 
 // ---------------- 以下是判测与计时，不要修改 ----------------
